@@ -9,6 +9,7 @@ const HappySadDetector: React.FC<HappySadDetectorProps> = ({ isOpen, onClose }) 
   const videoRef = useRef<HTMLVideoElement>(null);
   const [capturedImage, setCapturedImage] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(false);
+  const [result, setResult] = useState<string>('Click "Analyze" to start');
 
   useEffect(() => {
     if (isOpen && !capturedImage) {
@@ -82,14 +83,74 @@ const HappySadDetector: React.FC<HappySadDetectorProps> = ({ isOpen, onClose }) 
     startCamera();
   };
 
-  const analyzePhoto = () => {
-    console.log('Starting analysis...');
-    setIsLoading(true);
-    setTimeout(() => {
+  const analyzePhoto = async () => {
+    if (!capturedImage) return;
+    
+    try {
+      console.log('Starting analysis...');
+      setIsLoading(true);
+
+      // For testing, let's use a test image URL first
+      const testImageUrl = "https://raw.githubusercontent.com/gradio-app/gradio/main/test/test_files/bus.png";
+      
+      console.log('Sending request with test image...');
+      const eventResponse = await fetch('https://tonywilliamsdev-happy-or-sad.hf.space/gradio_api/call/predict', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          data: [
+            {
+              path: testImageUrl,
+              meta: { _type: "gradio.FileData" }
+            }
+          ]
+        })
+      });
+
+      const eventData = await eventResponse.json();
+      console.log('Event response:', eventData);
+      const eventId = eventData.event_id;
+
+      if (!eventId) {
+        throw new Error('No event ID received');
+      }
+
+      // Step 2: Get result using event ID
+      console.log('Getting result using event ID:', eventId);
+      const resultResponse = await fetch(`https://tonywilliamsdev-happy-or-sad.hf.space/gradio_api/call/predict/${eventId}`, {
+        method: 'GET'
+      });
+
+      const text = await resultResponse.text();
+      console.log('Raw response:', text);
+
+      // The response might contain multiple lines, we want the last non-empty one
+      const lines = text.split('\n').filter(line => line.trim());
+      const lastLine = lines[lines.length - 1];
+      
+      if (lastLine) {
+        try {
+          const data = JSON.parse(lastLine);
+          console.log('Parsed result:', data);
+          setResult(data.data[0] || 'Unable to determine');
+        } catch (parseError) {
+          console.error('Error parsing result:', parseError);
+          setResult('Error parsing result');
+        }
+      } else {
+        setResult('No result received');
+      }
+      
+    } catch (error) {
+      console.error('Error during analysis:', error);
+      setResult('Error analyzing image');
+    } finally {
       setIsLoading(false);
-      console.log('Analysis complete');
-    }, 1000);
+    }
   };
+  
 
   if (!isOpen) return null;
 
@@ -163,7 +224,7 @@ const HappySadDetector: React.FC<HappySadDetectorProps> = ({ isOpen, onClose }) 
         {/* Happiness Score */}
         {capturedImage && !isLoading && (
           <div className="absolute top-4 right-4 bg-white bg-opacity-90 rounded-lg px-4 py-2 shadow-lg">
-            <p className="text-xl font-semibold text-gray-900">90% Happy</p>
+            <p className="text-xl font-semibold text-gray-900">{result}</p>
           </div>
         )}
 
